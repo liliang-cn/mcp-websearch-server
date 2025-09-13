@@ -15,11 +15,17 @@ type multiEngineSearcher struct {
 }
 
 func NewMultiEngineSearcher() MultiEngineSearcher {
+	// Use the hybrid approach by default (goquery + chromedp)
+	return NewHybridSearcher()
+}
+
+// NewBasicMultiEngineSearcher creates a basic searcher without chromedp
+func NewBasicMultiEngineSearcher() MultiEngineSearcher {
 	return &multiEngineSearcher{
 		engines: map[string]SearchEngine{
-			"bing":       NewBingSearchEngine(),
-			"brave":      NewBraveSearchEngine(),
-			"duckduckgo": NewDuckDuckGoSearchEngine(),
+			"bing":       NewBingGoQueryEngine(),
+			"brave":      NewBraveGoQueryEngine(),
+			"duckduckgo": NewDuckDuckGoGoQueryEngine(),
 		},
 		extractor: extraction.NewChromedpExtractor(),
 	}

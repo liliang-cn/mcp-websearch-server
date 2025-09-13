@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/chromedp"
 )
 
@@ -35,38 +34,82 @@ func (b *bingSearchEngine) Search(ctx context.Context, query string, maxResults 
 	defer cancel()
 
 	var results []SearchResult
-	var nodes []*cdp.Node
 
+	// Navigate and wait for results
 	err := chromedp.Run(allocCtx,
 		chromedp.Navigate(searchURL),
-		chromedp.WaitVisible(`#b_results`, chromedp.ByID),
-		chromedp.Nodes(`#b_results .b_algo`, &nodes, chromedp.ByQueryAll),
+		chromedp.Sleep(3*time.Second), // Let page fully load
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search Bing: %w", err)
 	}
 
-	for i, node := range nodes {
-		if i >= maxResults {
-			break
+	// Use JavaScript to extract search results directly
+	var jsResults []map[string]string
+	err = chromedp.Run(allocCtx,
+		chromedp.Evaluate(`
+			(() => {
+				const results = [];
+				const items = document.querySelectorAll('.b_algo, li.b_algo, #b_results > li');
+				
+				for (let i = 0; i < Math.min(items.length, `+fmt.Sprintf("%d", maxResults)+`); i++) {
+					const item = items[i];
+					const titleElem = item.querySelector('h2 a, h2, a');
+					const linkElem = item.querySelector('h2 a, a[href]');
+					const snippetElem = item.querySelector('.b_caption p, .b_caption, p');
+					
+					if (linkElem && linkElem.href) {
+						results.push({
+							title: titleElem ? titleElem.innerText : '',
+							url: linkElem.href,
+							snippet: snippetElem ? snippetElem.innerText : ''
+						});
+					}
+				}
+				return results;
+			})()
+		`, &jsResults),
+	)
+
+	if err == nil && len(jsResults) > 0 {
+		// Successfully got results via JavaScript
+		for _, jsResult := range jsResults {
+			title := jsResult["title"]
+			link := jsResult["url"]
+			snippet := jsResult["snippet"]
+			
+			if link != "" {
+				results = append(results, SearchResult{
+					Title:   strings.TrimSpace(title),
+					URL:     link,
+					Snippet: strings.TrimSpace(snippet),
+					Engine:  b.Name(),
+				})
+			}
 		}
-
-		var title, link, snippet string
-
-		err := chromedp.Run(allocCtx,
-			chromedp.Text(`h2`, &title, chromedp.ByQuery, chromedp.FromNode(node)),
-			chromedp.AttributeValue(`h2 a`, "href", &link, nil, chromedp.ByQuery, chromedp.FromNode(node)),
-			chromedp.Text(`.b_caption p`, &snippet, chromedp.ByQuery, chromedp.FromNode(node)),
+	} else {
+		// Fallback approach: try to get any text from the page
+		var pageText string
+		chromedp.Run(allocCtx,
+			chromedp.Evaluate(`
+				(() => {
+					const results = [];
+					// Try to find any links in the results area
+					const links = document.querySelectorAll('#b_results a[href*="http"]');
+					for (let i = 0; i < Math.min(links.length, `+fmt.Sprintf("%d", maxResults)+`); i++) {
+						if (!links[i].href.includes('bing.com') && 
+							!links[i].href.includes('microsoft.com')) {
+							results.push({
+								title: links[i].innerText || 'Result ' + (i+1),
+								url: links[i].href,
+								snippet: ''
+							});
+						}
+					}
+					return results;
+				})()
+			`, &pageText),
 		)
-
-		if err == nil && link != "" {
-			results = append(results, SearchResult{
-				Title:   strings.TrimSpace(title),
-				URL:     link,
-				Snippet: strings.TrimSpace(snippet),
-				Engine:  b.Name(),
-			})
-		}
 	}
 
 	return results, nil
