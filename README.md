@@ -60,31 +60,31 @@ If installed via `go install`, make sure `~/go/bin` is in your PATH.
 
 ## Available Tools
 
-### 🔍 `web_search`
-Fast web search returning titles and URLs using the hybrid search engine.
+### 🔍 `websearch_basic`
+Basic web search returning titles, URLs and snippets from a single search engine using the hybrid approach.
 
 **Parameters:**
 - `query` (string, required): The search query
 - `max_results` (int, optional): Maximum results to return (default: 10)
 
-### 📄 `web_search_with_content`
-Search with intelligent content extraction from result pages.
+### 📄 `websearch_with_content`
+Web search with intelligent content extraction from result pages using chromedp.
 
 **Parameters:**
 - `query` (string, required): The search query
 - `max_results` (int, optional): Maximum results to return (default: 5)
 - `extract_content` (bool, optional): Extract full page content (default: true)
 
-### 🚀 `deep_web_search`
-Comprehensive search across multiple engines with advanced content extraction.
+### 🚀 `websearch_multi_engine`
+Comprehensive search across multiple engines (Bing, Brave, DuckDuckGo) with content extraction.
 
 **Parameters:**
 - `query` (string, required): The search query
 - `max_results` (int, optional): Maximum results to return (default: 3)
 - `engines` (array, optional): Search engines to use ["bing", "brave", "duckduckgo"] (default: all)
 
-### 🤖 `search_and_aggregate` *(NEW)*
-Search and return aggregated content ready for AI analysis and summarization.
+### 🤖 `websearch_ai_summary`
+Search and return AI-ready aggregated content optimized for analysis and summarization.
 
 **Parameters:**
 - `query` (string, required): The search query

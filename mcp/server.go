@@ -45,8 +45,8 @@ func (s *Server) registerTools() error {
 	}
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "web_search",
-		Description: "Perform a basic web search returning titles and URLs",
+		Name:        "websearch_basic",
+		Description: "Basic web search returning titles, URLs and snippets from a single search engine",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args basicSearchArgs) (*mcp.CallToolResult, any, error) {
 		if args.MaxResults == 0 {
 			args.MaxResults = 10
@@ -84,8 +84,8 @@ func (s *Server) registerTools() error {
 	}
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "web_search_with_content",
-		Description: "Search the web and extract content from result pages",
+		Name:        "websearch_with_content",
+		Description: "Web search with intelligent content extraction from result pages",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args searchWithContentArgs) (*mcp.CallToolResult, any, error) {
 		if args.MaxResults == 0 {
 			args.MaxResults = 5
@@ -136,8 +136,8 @@ func (s *Server) registerTools() error {
 	}
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "deep_web_search",
-		Description: "Comprehensive search with full page analysis across multiple engines",
+		Name:        "websearch_multi_engine",
+		Description: "Comprehensive search across multiple engines (Bing, Brave, DuckDuckGo) with content extraction",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args deepSearchArgs) (*mcp.CallToolResult, any, error) {
 		if args.MaxResults == 0 {
 			args.MaxResults = 3
@@ -190,8 +190,8 @@ func (s *Server) registerTools() error {
 	}
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "search_and_aggregate",
-		Description: "Search and return aggregated content ready for AI analysis and summarization",
+		Name:        "websearch_ai_summary",
+		Description: "Search and return AI-ready aggregated content optimized for analysis and summarization",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args searchAndAggregateArgs) (*mcp.CallToolResult, any, error) {
 		if args.MaxResults == 0 {
 			args.MaxResults = 3

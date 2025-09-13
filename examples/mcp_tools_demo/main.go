@@ -18,10 +18,10 @@ func main() {
 	
 	fmt.Println("✅ MCP Server created successfully with hybrid searcher")
 	fmt.Println("Available tools:")
-	fmt.Println("1. web_search - Basic web search returning titles and URLs")
-	fmt.Println("2. web_search_with_content - Search with full page content extraction")
-	fmt.Println("3. deep_web_search - Comprehensive search across multiple engines")
-	fmt.Println("4. search_and_aggregate - NEW: Aggregated content for AI analysis")
+	fmt.Println("1. websearch_basic - Basic web search returning titles, URLs and snippets")
+	fmt.Println("2. websearch_with_content - Search with intelligent content extraction")
+	fmt.Println("3. websearch_multi_engine - Comprehensive search across multiple engines")
+	fmt.Println("4. websearch_ai_summary - AI-ready aggregated content for analysis")
 	
 	// Test context
 	ctx := context.Background()
