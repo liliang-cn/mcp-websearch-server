@@ -1,13 +1,14 @@
 # MCP Web Search Server
 
-A Model Context Protocol (MCP) server that provides multi-engine web search capabilities with content extraction.
+A Model Context Protocol (MCP) server that provides multi-engine web search capabilities with intelligent content extraction using a hybrid approach.
 
 ## Features
 
-- 🔍 **Multi-Engine Search**: Prioritizes Bing → Brave → DuckDuckGo for optimal reliability
-- 📄 **Content Extraction**: Fetches and extracts full page content from search results
-- 🚀 **Concurrent Processing**: Extracts content from multiple pages simultaneously
-- 🔄 **Smart Fallback**: Automatically switches to alternative search engines on failure
+- 🔍 **Hybrid Search Engine**: Fast goquery-based search results + intelligent chromedp content extraction
+- 🌐 **Multi-Engine Support**: Bing, Brave, and DuckDuckGo with smart fallback mechanisms
+- 📄 **Intelligent Content Extraction**: Advanced article parsing with multiple content selectors
+- 🚀 **Concurrent Processing**: Parallel content extraction with rate limiting
+- 🤖 **AI-Ready Summaries**: Aggregated content optimized for AI analysis and summarization
 - 🛠️ **MCP Protocol**: Full compliance with Model Context Protocol specification
 
 ## Installation
@@ -60,14 +61,14 @@ If installed via `go install`, make sure `~/go/bin` is in your PATH.
 ## Available Tools
 
 ### 🔍 `web_search`
-Basic web search returning titles and URLs.
+Fast web search returning titles and URLs using the hybrid search engine.
 
 **Parameters:**
 - `query` (string, required): The search query
 - `max_results` (int, optional): Maximum results to return (default: 10)
 
 ### 📄 `web_search_with_content`
-Search with automatic content extraction from result pages.
+Search with intelligent content extraction from result pages.
 
 **Parameters:**
 - `query` (string, required): The search query
@@ -75,31 +76,71 @@ Search with automatic content extraction from result pages.
 - `extract_content` (bool, optional): Extract full page content (default: true)
 
 ### 🚀 `deep_web_search`
-Comprehensive search across multiple engines with content extraction.
+Comprehensive search across multiple engines with advanced content extraction.
 
 **Parameters:**
 - `query` (string, required): The search query
 - `max_results` (int, optional): Maximum results to return (default: 3)
 - `engines` (array, optional): Search engines to use ["bing", "brave", "duckduckgo"] (default: all)
 
+### 🤖 `search_and_aggregate` *(NEW)*
+Search and return aggregated content ready for AI analysis and summarization.
+
+**Parameters:**
+- `query` (string, required): The search query
+- `max_results` (int, optional): Maximum results to return (default: 3)
+
+**Returns:** Formatted markdown content with proper structure for AI processing.
+
 ## Architecture
 
 ```
 mcp-websearch-server/
-├── main.go                 # Entry point with CLI flags
-├── mcp/                    # MCP protocol implementation
-│   └── server.go          # MCP server and tool registration
-├── search/                 # Search engine implementations
-│   ├── interface.go       # Common interfaces
-│   ├── multi_engine.go    # Multi-engine orchestration
-│   ├── bing.go           # Bing search
-│   ├── brave.go          # Brave search
-│   └── duckduckgo.go     # DuckDuckGo search
-├── extraction/            # Content extraction
-│   └── chromedp.go       # Browser-based extraction
-└── utils/                 # Utilities
-    └── retry.go          # Retry logic with backoff
+├── main.go                     # Entry point with CLI flags
+├── mcp/                        # MCP protocol implementation
+│   └── server.go              # MCP server and tool registration
+├── search/                     # Search engine implementations
+│   ├── interface.go           # Common interfaces
+│   ├── hybrid_searcher.go     # Hybrid multi-engine searcher
+│   ├── multi_engine.go        # Basic multi-engine orchestration
+│   ├── bing_goquery.go        # Fast Bing search with goquery
+│   ├── brave_goquery.go       # Fast Brave search with goquery
+│   ├── duckduckgo_goquery.go  # Fast DuckDuckGo search with goquery
+│   ├── bing.go               # Original Bing search (chromedp)
+│   ├── brave.go              # Original Brave search (chromedp)
+│   └── duckduckgo.go         # Original DuckDuckGo search (chromedp)
+├── extraction/                 # Content extraction
+│   ├── hybrid_extractor.go   # Intelligent chromedp-based extraction
+│   └── chromedp.go           # Basic browser-based extraction
+├── examples/                   # Demo applications
+│   ├── basic_search_demo/     # Basic search functionality demo
+│   ├── hybrid_search_demo/    # Hybrid search with content extraction
+│   └── mcp_tools_demo/        # MCP server tools demonstration
+└── utils/                     # Utilities
+    └── retry.go              # Retry logic with backoff
 ```
+
+## Hybrid Approach
+
+The server uses a sophisticated hybrid approach for optimal performance:
+
+### 1. Fast Search Results (goquery)
+- **Bing**: Scrapes `www.bing.com/search` with proper CSS selectors
+- **Brave**: Scrapes `search.brave.com/search` for results
+- **DuckDuckGo**: Scrapes `duckduckgo.com` with lite interface
+- **Benefits**: Fast response times, reliable result parsing
+
+### 2. Intelligent Content Extraction (chromedp)
+- **Article Detection**: Uses advanced selectors to find main content
+- **Content Cleaning**: Removes scripts, styles, and navigation elements
+- **Fallback Strategy**: Falls back to paragraph extraction if article content not found
+- **Benefits**: High-quality content extraction, JavaScript handling
+
+### 3. AI-Ready Aggregation
+- **Structured Output**: Properly formatted markdown for AI processing
+- **Content Summarization**: Truncates content intelligently at sentence boundaries
+- **Multi-Source**: Combines content from multiple search engines
+- **Benefits**: Optimized for AI analysis and summarization
 
 ## Development
 
@@ -143,20 +184,34 @@ go test -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out
 ```
 
+### Example Applications
+
+```bash
+# Test basic search functionality
+go run ./examples/basic_search_demo/main.go
+
+# Test hybrid search with content extraction
+go run ./examples/hybrid_search_demo/main.go
+
+# Test MCP server tools
+go run ./examples/mcp_tools_demo/main.go
+```
+
 ## How It Works
 
 1. **Search Request**: Receives search query via MCP protocol
-2. **Engine Selection**: Chooses primary engine (Bing) or fallback
-3. **Search Execution**: Performs search using browser automation
-4. **Content Extraction**: Optionally extracts full page content
-5. **Response**: Returns structured results via MCP protocol
+2. **Engine Selection**: Uses goquery-based engines for fast results
+3. **Search Execution**: Performs HTTP-based search with proper headers
+4. **Content Extraction**: Uses chromedp for intelligent content extraction
+5. **Aggregation**: Combines and formats content for AI analysis
+6. **Response**: Returns structured results via MCP protocol
 
 ## Search Engine Priority
 
-The server prioritizes search engines in this order:
-1. **Bing** - Primary engine
-2. **Brave** - First fallback
-3. **DuckDuckGo** - Second fallback
+The hybrid searcher prioritizes engines in this order:
+1. **DuckDuckGo** - Primary engine (privacy-focused)
+2. **Bing** - First fallback (comprehensive results)
+3. **Brave** - Second fallback (independent search)
 
 If one engine fails, the server automatically tries the next available engine.
 
@@ -166,6 +221,21 @@ If one engine fails, the server automatically tries the next available engine.
 - Graceful fallback to alternative search engines
 - Structured error messages via MCP protocol
 - Timeout handling for long-running operations
+- Rate limiting for content extraction
+
+## Performance
+
+- **Search Speed**: ~200-500ms per search using goquery
+- **Content Extraction**: ~2-5s per page using chromedp
+- **Concurrent Extraction**: Limited to 2-3 simultaneous browser instances
+- **Memory Usage**: Optimized with proper context cleanup
+
+## Dependencies
+
+- **MCP Go SDK**: Model Context Protocol implementation
+- **chromedp**: Browser automation for content extraction
+- **goquery**: Fast HTML parsing and scraping
+- **Standard Library**: HTTP client, context, sync primitives
 
 ## Contributing
 
@@ -179,4 +249,5 @@ MIT License - see LICENSE file for details
 
 - Built with [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk)
 - Uses [chromedp](https://github.com/chromedp/chromedp) for browser automation
+- Uses [goquery](https://github.com/PuerkitoBio/goquery) for HTML parsing
 - Implements [Model Context Protocol](https://modelcontextprotocol.io) specification
