@@ -88,7 +88,7 @@ func (s *Server) registerTools() error {
 		Description: "Web search with intelligent content extraction from result pages",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args searchWithContentArgs) (*mcp.CallToolResult, any, error) {
 		if args.MaxResults == 0 {
-			args.MaxResults = 5
+			args.MaxResults = 10
 		}
 		if !args.ExtractContent {
 			args.ExtractContent = true
@@ -140,7 +140,7 @@ func (s *Server) registerTools() error {
 		Description: "Comprehensive search across multiple engines (Bing, Brave, DuckDuckGo) with content extraction",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args deepSearchArgs) (*mcp.CallToolResult, any, error) {
 		if args.MaxResults == 0 {
-			args.MaxResults = 3
+			args.MaxResults = 10
 		}
 		if len(args.Engines) == 0 {
 			args.Engines = []string{"bing", "brave", "duckduckgo"}
@@ -194,7 +194,7 @@ func (s *Server) registerTools() error {
 		Description: "Search and return AI-ready aggregated content optimized for analysis and summarization",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args searchAndAggregateArgs) (*mcp.CallToolResult, any, error) {
 		if args.MaxResults == 0 {
-			args.MaxResults = 3
+			args.MaxResults = 10
 		}
 
 		// Check if we have a hybrid searcher with aggregation capability

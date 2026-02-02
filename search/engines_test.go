@@ -31,9 +31,9 @@ func TestNewMultiEngineSearcher(t *testing.T) {
 		t.Fatal("expected searcher to be non-nil")
 	}
 
-	ms, ok := searcher.(*multiEngineSearcher)
+	ms, ok := searcher.(*HybridMultiEngineSearcher)
 	if !ok {
-		t.Fatal("expected multiEngineSearcher type")
+		t.Fatal("expected HybridMultiEngineSearcher type")
 	}
 
 	if len(ms.engines) != 3 {

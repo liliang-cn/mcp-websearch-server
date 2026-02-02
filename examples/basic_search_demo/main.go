@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== MCP Web Search Server Test ===\n")
+	fmt.Println("=== MCP Web Search Server Test ===")
 	
 	searcher := search.NewMultiEngineSearcher()
 	ctx := context.Background()
@@ -50,7 +50,7 @@ func main() {
 			}
 		}
 		
-		fmt.Println("\n========================================\n")
+		fmt.Println("\n========================================")
 		
 		// Small delay between searches
 		time.Sleep(2 * time.Second)

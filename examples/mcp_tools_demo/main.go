@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== MCP Server Tools Test ===\n")
+	fmt.Println("=== MCP Server Tools Test ===")
 	
 	server, err := mcp.NewServer()
 	if err != nil {

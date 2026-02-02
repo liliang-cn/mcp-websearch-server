@@ -163,15 +163,18 @@ func (h *HybridMultiEngineSearcher) SearchAndAggregate(ctx context.Context, quer
 		aggregated += fmt.Sprintf("**Source:** %s\n", result.URL)
 		aggregated += fmt.Sprintf("**Engine:** %s\n\n", result.Engine)
 		
+		// Always include snippet as it often contains the key fact (zero-click info)
+		if result.Snippet != "" {
+			aggregated += fmt.Sprintf("**Snippet:** %s\n\n", result.Snippet)
+		}
+		
 		if result.Content != "" {
 			// Limit content per result
 			content := result.Content
 			if len(content) > 1500 {
 				content = content[:1500] + "..."
 			}
-			aggregated += content
-		} else if result.Snippet != "" {
-			aggregated += result.Snippet
+			aggregated += fmt.Sprintf("**Extracted Content:**\n%s", content)
 		}
 		
 		aggregated += "\n\n---\n\n"

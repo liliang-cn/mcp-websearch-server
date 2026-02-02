@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Hybrid Search Test (goquery + chromedp) ===\n")
+	fmt.Println("=== Hybrid Search Test (goquery + chromedp) ===")
 	
 	// Create hybrid searcher
 	searcher := search.NewHybridSearcher()

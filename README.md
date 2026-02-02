@@ -58,6 +58,19 @@ Add to your Claude Desktop configuration file:
 
 If installed via `go install`, make sure `~/go/bin` is in your PATH.
 
+### Using with Claude Code (Skills)
+
+This project includes a `SKILL.md` definition that can be used with [Claude Code](https://code.claude.com). This skill provides specialized instructions for Claude to effectively use the web search tools for deep research and fact-checking.
+
+To use it:
+1. Ensure the MCP server is configured in your `claude_desktop_config.json` (as above).
+2. Copy `SKILL.md` to your skills directory:
+   ```bash
+   mkdir -p ~/.claude/skills
+   cp SKILL.md ~/.claude/skills/web-search.md
+   ```
+3. You can now use the skill in Claude Code via `/web-search` or by asking natural language questions that trigger the skill.
+
 ## Available Tools
 
 ### 🔍 `websearch_basic`
