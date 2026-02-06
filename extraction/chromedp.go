@@ -56,7 +56,7 @@ func (e *ChromedpExtractor) ExtractContent(ctx context.Context, url string) (str
 		return "", fmt.Errorf("failed to extract content from %s: %w", url, err)
 	}
 
-	bodyText = cleanText(bodyText)
+	bodyText = CleanText(bodyText)
 
 	if title != "" {
 		content = fmt.Sprintf("# %s\n\n%s", title, bodyText)
@@ -67,7 +67,38 @@ func (e *ChromedpExtractor) ExtractContent(ctx context.Context, url string) (str
 	return content, nil
 }
 
-func cleanText(text string) string {
+func (e *ChromedpExtractor) CaptureScreenshot(ctx context.Context, url string, fullPage bool) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, e.timeout)
+	defer cancel()
+
+	allocCtx, cancel := chromedp.NewContext(ctx)
+	defer cancel()
+
+	var buf []byte
+	var err error
+
+	if fullPage {
+		err = chromedp.Run(allocCtx,
+			chromedp.Navigate(url),
+			chromedp.WaitReady("body"),
+			chromedp.FullScreenshot(&buf, 90),
+		)
+	} else {
+		err = chromedp.Run(allocCtx,
+			chromedp.Navigate(url),
+			chromedp.WaitReady("body"),
+			chromedp.CaptureScreenshot(&buf),
+		)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to capture screenshot from %s: %w", url, err)
+	}
+
+	return buf, nil
+}
+
+func CleanText(text string) string {
 	lines := strings.Split(text, "\n")
 	var cleanedLines []string
 	lastWasEmpty := false

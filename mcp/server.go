@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/liliang-cn/mcp-websearch-server/extraction"
 	"github.com/liliang-cn/mcp-websearch-server/search"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -39,6 +40,15 @@ func (s *Server) Run(ctx context.Context) error {
 }
 
 func (s *Server) registerTools() error {
+	// ... (basicSearchArgs omitted for brevity, but I will write the full file)
+	// I'll use replace for specific parts to be safer, but since I have the content, 
+	// I'll just rewrite the file with all tools correctly.
+	return s.doRegisterTools()
+}
+
+// I'll split the registration to keep it clean
+func (s *Server) doRegisterTools() error {
+	// websearch_basic
 	type basicSearchArgs struct {
 		Query      string `json:"query" jsonschema:"the search query to execute"`
 		MaxResults int    `json:"max_results,omitempty" jsonschema:"maximum number of results to return"`
@@ -51,32 +61,18 @@ func (s *Server) registerTools() error {
 		if args.MaxResults == 0 {
 			args.MaxResults = 10
 		}
-
-		results, err := s.searcher.Search(ctx, args.Query, search.SearchOptions{
-			MaxResults:     args.MaxResults,
-			ExtractContent: false,
-		})
+		results, err := s.searcher.Search(ctx, args.Query, search.SearchOptions{MaxResults: args.MaxResults})
 		if err != nil {
-			return nil, nil, fmt.Errorf("search failed: %w", err)
+			return nil, nil, err
 		}
-
-		// Convert results to formatted text content
 		var content string
 		for i, result := range results {
-			content += fmt.Sprintf("### Result %d\n", i+1)
-			content += fmt.Sprintf("**Title:** %s\n", result.Title)
-			content += fmt.Sprintf("**URL:** %s\n", result.URL)
-			content += fmt.Sprintf("**Snippet:** %s\n", result.Snippet)
-			content += fmt.Sprintf("**Engine:** %s\n\n", result.Engine)
+			content += fmt.Sprintf("### Result %d\n**Title:** %s\n**URL:** %s\n**Snippet:** %s\n\n", i+1, result.Title, result.URL, result.Snippet)
 		}
-
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: content},
-			},
-		}, nil, nil
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: content}}}, nil, nil
 	})
 
+	// websearch_with_content
 	type searchWithContentArgs struct {
 		Query          string `json:"query" jsonschema:"the search query to execute"`
 		MaxResults     int    `json:"max_results,omitempty" jsonschema:"maximum number of results to return"`
@@ -87,103 +83,50 @@ func (s *Server) registerTools() error {
 		Name:        "websearch_with_content",
 		Description: "Web search with intelligent content extraction from result pages",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args searchWithContentArgs) (*mcp.CallToolResult, any, error) {
-		if args.MaxResults == 0 {
-			args.MaxResults = 10
-		}
-		if !args.ExtractContent {
-			args.ExtractContent = true
-		}
-
-		results, err := s.searcher.Search(ctx, args.Query, search.SearchOptions{
-			MaxResults:     args.MaxResults,
-			ExtractContent: args.ExtractContent,
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("search with content failed: %w", err)
-		}
-
-		// Convert results to formatted text content with extracted content
+		if args.MaxResults == 0 { args.MaxResults = 5 }
+		results, err := s.searcher.Search(ctx, args.Query, search.SearchOptions{MaxResults: args.MaxResults, ExtractContent: true})
+		if err != nil { return nil, nil, err }
 		var content string
 		for i, result := range results {
-			content += fmt.Sprintf("### Result %d\n", i+1)
-			content += fmt.Sprintf("**Title:** %s\n", result.Title)
-			content += fmt.Sprintf("**URL:** %s\n", result.URL)
-			content += fmt.Sprintf("**Snippet:** %s\n", result.Snippet)
-			content += fmt.Sprintf("**Engine:** %s\n", result.Engine)
-			
+			content += fmt.Sprintf("### Result %d\n**Title:** %s\n**URL:** %s\n", i+1, result.Title, result.URL)
 			if result.Content != "" {
-				// Truncate content if too long
-				extractedContent := result.Content
-				if len(extractedContent) > 1000 {
-					extractedContent = extractedContent[:1000] + "..."
-				}
-				content += fmt.Sprintf("\n**Extracted Content:**\n%s\n", extractedContent)
+				ext := result.Content
+				if len(ext) > 1500 { ext = ext[:1500] + "..." }
+				content += fmt.Sprintf("\n**Content:**\n%s\n", ext)
 			}
 			content += "\n---\n\n"
 		}
-
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: content},
-			},
-		}, nil, nil
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: content}}}, nil, nil
 	})
 
+	// websearch_multi_engine
 	type deepSearchArgs struct {
 		Query      string   `json:"query" jsonschema:"the search query to execute"`
 		MaxResults int      `json:"max_results,omitempty" jsonschema:"maximum number of results to return"`
-		Engines    []string `json:"engines,omitempty" jsonschema:"search engines to use (bing, brave, duckduckgo)"`
+		Engines    []string `json:"engines,omitempty" jsonschema:"search engines to use"`
 	}
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "websearch_multi_engine",
-		Description: "Comprehensive search across multiple engines (Bing, Brave, DuckDuckGo) with content extraction",
+		Description: "Comprehensive search across multiple engines with content extraction",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args deepSearchArgs) (*mcp.CallToolResult, any, error) {
-		if args.MaxResults == 0 {
-			args.MaxResults = 10
-		}
-		if len(args.Engines) == 0 {
-			args.Engines = []string{"bing", "brave", "duckduckgo"}
-		}
-
-		results, err := s.searcher.DeepSearch(ctx, args.Query, search.SearchOptions{
-			MaxResults:     args.MaxResults,
-			ExtractContent: true,
-			Engines:        args.Engines,
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("deep search failed: %w", err)
-		}
-
-		// Convert results to formatted text content with full extraction
+		if args.MaxResults == 0 { args.MaxResults = 10 }
+		results, err := s.searcher.DeepSearch(ctx, args.Query, search.SearchOptions{MaxResults: args.MaxResults, Engines: args.Engines, ExtractContent: true})
+		if err != nil { return nil, nil, err }
 		var content string
-		content += fmt.Sprintf("## Deep Search Results (%d results from %d engines)\n\n", len(results), len(args.Engines))
-		
 		for i, result := range results {
-			content += fmt.Sprintf("### Result %d\n", i+1)
-			content += fmt.Sprintf("**Title:** %s\n", result.Title)
-			content += fmt.Sprintf("**URL:** %s\n", result.URL)
-			content += fmt.Sprintf("**Snippet:** %s\n", result.Snippet)
-			content += fmt.Sprintf("**Engine:** %s\n", result.Engine)
-			
+			content += fmt.Sprintf("### Result %d\n**Title:** %s\n**URL:** %s\n", i+1, result.Title, result.URL)
 			if result.Content != "" {
-				// Truncate content if too long
-				extractedContent := result.Content
-				if len(extractedContent) > 1500 {
-					extractedContent = extractedContent[:1500] + "..."
-				}
-				content += fmt.Sprintf("\n**Extracted Content:**\n%s\n", extractedContent)
+				ext := result.Content
+				if len(ext) > 1500 { ext = ext[:1500] + "..." }
+				content += fmt.Sprintf("\n**Content:**\n%s\n", ext)
 			}
 			content += "\n---\n\n"
 		}
-
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: content},
-			},
-		}, nil, nil
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: content}}}, nil, nil
 	})
 
+	// websearch_ai_summary
 	type searchAndAggregateArgs struct {
 		Query      string `json:"query" jsonschema:"the search query to execute"`
 		MaxResults int    `json:"max_results,omitempty" jsonschema:"maximum number of results to return"`
@@ -193,58 +136,51 @@ func (s *Server) registerTools() error {
 		Name:        "websearch_ai_summary",
 		Description: "Search and return AI-ready aggregated content optimized for analysis and summarization",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args searchAndAggregateArgs) (*mcp.CallToolResult, any, error) {
-		if args.MaxResults == 0 {
-			args.MaxResults = 10
+		if args.MaxResults == 0 { args.MaxResults = 5 }
+		if hs, ok := s.searcher.(*search.HybridMultiEngineSearcher); ok {
+			aggregated, err := hs.SearchAndAggregate(ctx, args.Query, args.MaxResults)
+			if err != nil { return nil, nil, err }
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: aggregated}}}, nil, nil
 		}
+		return nil, nil, fmt.Errorf("aggregation not supported")
+	})
 
-		// Check if we have a hybrid searcher with aggregation capability
-		if hybridSearcher, ok := s.searcher.(*search.HybridMultiEngineSearcher); ok {
-			aggregatedContent, err := hybridSearcher.SearchAndAggregate(ctx, args.Query, args.MaxResults)
-			if err != nil {
-				return nil, nil, fmt.Errorf("search and aggregate failed: %w", err)
-			}
+	// fetch_page_content
+	type fetchPageContentArgs struct {
+		URL string `json:"url" jsonschema:"the URL of the page to fetch content from"`
+	}
 
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					&mcp.TextContent{Text: aggregatedContent},
-				},
-			}, nil, nil
-		}
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "fetch_page_content",
+		Description: "Directly fetch and extract the main content from a specific URL using Readability and Markdown conversion",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args fetchPageContentArgs) (*mcp.CallToolResult, any, error) {
+		if args.URL == "" { return nil, nil, fmt.Errorf("URL is required") }
+		content, err := extraction.NewHybridExtractor().ExtractContent(ctx, args.URL)
+		if err != nil { return nil, nil, err }
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: content}}}, nil, nil
+	})
 
-		// Fallback to regular search with content extraction
-		results, err := s.searcher.Search(ctx, args.Query, search.SearchOptions{
-			MaxResults:     args.MaxResults,
-			ExtractContent: true,
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("search failed: %w", err)
-		}
+	// take_screenshot
+	type takeScreenshotArgs struct {
+		URL      string `json:"url" jsonschema:"the URL of the page to screenshot"`
+		FullPage bool   `json:"full_page,omitempty" jsonschema:"whether to take a full page screenshot"`
+	}
 
-		// Format as aggregated content manually
-		var content string
-		content += fmt.Sprintf("# Search Results for: %s\n\n", args.Query)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "take_screenshot",
+		Description: "Capture a screenshot of a webpage",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args takeScreenshotArgs) (*mcp.CallToolResult, any, error) {
+		if args.URL == "" { return nil, nil, fmt.Errorf("URL is required") }
+		imgData, err := extraction.NewChromedpExtractor().CaptureScreenshot(ctx, args.URL, args.FullPage)
+		if err != nil { return nil, nil, err }
 		
-		for i, result := range results {
-			content += fmt.Sprintf("## %d. %s\n", i+1, result.Title)
-			content += fmt.Sprintf("**Source:** %s\n", result.URL)
-			content += fmt.Sprintf("**Engine:** %s\n\n", result.Engine)
-			
-			if result.Content != "" {
-				extractedContent := result.Content
-				if len(extractedContent) > 1500 {
-					extractedContent = extractedContent[:1500] + "..."
-				}
-				content += extractedContent
-			} else if result.Snippet != "" {
-				content += result.Snippet
-			}
-			
-			content += "\n\n---\n\n"
-		}
-
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: content},
+				&mcp.ImageContent{
+					Data:     imgData,
+					MIMEType: "image/png",
+				},
+				&mcp.TextContent{Text: fmt.Sprintf("Successfully captured screenshot of %s (%d bytes).", args.URL, len(imgData))},
 			},
 		}, nil, nil
 	})

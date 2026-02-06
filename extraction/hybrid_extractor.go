@@ -3,13 +3,16 @@ package extraction
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
+	"github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/chromedp/chromedp"
+	"github.com/go-shiori/go-readability"
 )
 
-// HybridExtractor uses chromedp for intelligent content extraction
+// HybridExtractor uses chromedp for rendering and go-readability for content extraction
 type HybridExtractor struct {
 	timeout time.Duration
 }
@@ -20,91 +23,65 @@ func NewHybridExtractor() *HybridExtractor {
 	}
 }
 
-// ExtractContent extracts the main content from a webpage
-func (e *HybridExtractor) ExtractContent(ctx context.Context, url string) (string, error) {
+// ExtractContent extracts the main content from a webpage using Readability and Markdown conversion
+func (e *HybridExtractor) ExtractContent(ctx context.Context, targetURL string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, e.timeout)
 	defer cancel()
 
 	allocCtx, cancel := chromedp.NewContext(ctx)
 	defer cancel()
 
-	var title string
-	var paragraphs []string
-	var articleContent string
+	var htmlContent string
+	var pageTitle string
 
+	// 1. Fetch rendered HTML via chromedp
 	err := chromedp.Run(allocCtx,
-		chromedp.Navigate(url),
+		chromedp.Navigate(targetURL),
 		chromedp.WaitReady("body"),
-		chromedp.Title(&title),
-		// Try to get article content first
-		chromedp.Evaluate(`
-			(() => {
-				// Remove script and style elements first
-				document.querySelectorAll('script, style, noscript').forEach(el => el.remove());
-				
-				// Try to find main article content
-				const articleSelectors = [
-					'article', 
-					'main article',
-					'[role="main"]',
-					'.article-content',
-					'.post-content', 
-					'.entry-content',
-					'.content-body',
-					'#article-body',
-					'.story-body'
-				];
-				
-				for (const selector of articleSelectors) {
-					const elem = document.querySelector(selector);
-					if (elem && elem.innerText && elem.innerText.length > 200) {
-						return elem.innerText;
-					}
-				}
-				
-				// Fallback: get all paragraphs
-				return null;
-			})()
-		`, &articleContent),
-		// If no article content, get paragraphs
-		chromedp.Evaluate(`
-			Array.from(document.querySelectorAll('p'))
-				.map(p => p.innerText.trim())
-				.filter(text => text.length > 50) // Filter short paragraphs
-				.slice(0, 20) // Limit to first 20 paragraphs
-		`, &paragraphs),
+		chromedp.Title(&pageTitle),
+		chromedp.OuterHTML("html", &htmlContent),
 	)
 
 	if err != nil {
-		return "", fmt.Errorf("failed to extract content from %s: %w", url, err)
+		return "", fmt.Errorf("failed to fetch rendered HTML from %s: %w", targetURL, err)
 	}
 
-	// Build the final content
-	var content strings.Builder
-	
-	if title != "" {
-		content.WriteString(fmt.Sprintf("# %s\n\n", title))
+	// 2. Use Readability to extract main content
+	parsedURL, err := url.Parse(targetURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid URL %s: %w", targetURL, err)
 	}
 
-	// Use article content if found
-	if articleContent != "" && len(articleContent) > 200 {
-		content.WriteString(cleanText(articleContent))
-	} else if len(paragraphs) > 0 {
-		// Otherwise use paragraphs
-		for _, p := range paragraphs {
-			if p != "" {
-				content.WriteString(p)
-				content.WriteString("\n\n")
-			}
+	article, err := readability.FromReader(strings.NewReader(htmlContent), parsedURL)
+	if err != nil {
+		// Fallback to title only if readability fails
+		if pageTitle != "" {
+			return fmt.Sprintf("# %s\n\n(Readability failed to extract main content)", pageTitle), nil
 		}
+		return "", fmt.Errorf("failed to parse content with readability: %w", err)
 	}
 
-	result := content.String()
-	if result == "" || (title != "" && result == fmt.Sprintf("# %s\n\n", title)) {
-		return "", fmt.Errorf("no content extracted from %s", url)
+	// 3. Convert Article HTML to Markdown
+	markdown, err := htmltomarkdown.ConvertString(article.Content)
+	if err != nil {
+		// Fallback to text if markdown conversion fails
+		return fmt.Sprintf("# %s\n\n%s", article.Title, article.TextContent), nil
 	}
 
-	return result, nil
+	// Clean up the markdown
+	finalMarkdown := CleanText(markdown)
+
+	// Combine Title and Markdown
+	var result strings.Builder
+	if article.Title != "" {
+		result.WriteString(fmt.Sprintf("# %s\n\n", article.Title))
+	} else if pageTitle != "" {
+		result.WriteString(fmt.Sprintf("# %s\n\n", pageTitle))
+	}
+
+	result.WriteString(finalMarkdown)
+
+	return result.String(), nil
 }
 
 // ExtractSummary extracts a summary-friendly version of the content
@@ -116,7 +93,6 @@ func (e *HybridExtractor) ExtractSummary(ctx context.Context, url string, maxLen
 
 	// Truncate if necessary
 	if len(content) > maxLength {
-		// Try to cut at a sentence boundary
 		truncated := content[:maxLength]
 		lastPeriod := strings.LastIndex(truncated, ". ")
 		if lastPeriod > maxLength/2 {
@@ -132,75 +108,19 @@ func (e *HybridExtractor) ExtractSummary(ctx context.Context, url string, maxLen
 // ExtractMultiple extracts content from multiple URLs concurrently
 func (e *HybridExtractor) ExtractMultiple(ctx context.Context, urls []string) map[string]string {
 	results := make(map[string]string)
-	resultChan := make(chan struct {
-		url     string
-		content string
-	}, len(urls))
-
-	// Create a shared browser context for efficiency
-	allocCtx, cancel := chromedp.NewContext(ctx)
-	defer cancel()
-
-	for _, url := range urls {
-		go func(u string) {
-			content, err := e.extractWithContext(allocCtx, u)
-			if err != nil {
-				content = fmt.Sprintf("Error extracting %s: %v", u, err)
-			}
-			resultChan <- struct {
-				url     string
-				content string
-			}{url: u, content: content}
-		}(url)
-	}
-
-	// Collect results
-	for i := 0; i < len(urls); i++ {
-		result := <-resultChan
-		results[result.url] = result.content
+	
+	// For simplicity and to avoid browser instance explosion, we'll do this sequentially 
+	// or with a very small concurrency limit in real use.
+	// Here we reuse the shared browser logic if needed, but for now we'll call ExtractContent.
+	
+	for _, targetURL := range urls {
+		content, err := e.ExtractContent(ctx, targetURL)
+		if err != nil {
+			results[targetURL] = fmt.Sprintf("Error: %v", err)
+		} else {
+			results[targetURL] = content
+		}
 	}
 
 	return results
-}
-
-func (e *HybridExtractor) extractWithContext(ctx context.Context, url string) (string, error) {
-	var title string
-	var paragraphs []string
-
-	err := chromedp.Run(ctx,
-		chromedp.Navigate(url),
-		chromedp.Title(&title),
-		chromedp.Evaluate(`
-			Array.from(document.querySelectorAll('p'))
-				.map(p => p.innerText.trim())
-				.filter(text => text.length > 30)
-				.slice(0, 10)
-		`, &paragraphs),
-	)
-
-	if err != nil {
-		return "", err
-	}
-
-	content := fmt.Sprintf("## %s\n\n", title)
-	for _, p := range paragraphs {
-		content += p + "\n\n"
-	}
-
-	return content, nil
-}
-
-// AggregateContent combines multiple contents into a single string for summarization
-func AggregateContent(contents map[string]string) string {
-	var aggregated strings.Builder
-	
-	aggregated.WriteString("# Aggregated Content from Multiple Sources\n\n")
-	
-	for url, content := range contents {
-		aggregated.WriteString(fmt.Sprintf("## Source: %s\n\n", url))
-		aggregated.WriteString(content)
-		aggregated.WriteString("\n\n---\n\n")
-	}
-	
-	return aggregated.String()
 }
