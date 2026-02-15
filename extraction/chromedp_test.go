@@ -36,9 +36,9 @@ func TestCleanText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := cleanText(tt.input)
+			result := CleanText(tt.input)
 			if result != tt.expected {
-				t.Errorf("cleanText() = %q, want %q", result, tt.expected)
+				t.Errorf("CleanText() = %q, want %q", result, tt.expected)
 			}
 		})
 	}

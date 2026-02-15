@@ -185,5 +185,39 @@ func (s *Server) doRegisterTools() error {
 		}, nil, nil
 	})
 
+	// deep_read_page
+	type deepReadPageArgs struct {
+		URL        string `json:"url" jsonschema:"the URL of the page to deep read"`
+		MaxLinks   int    `json:"max_links,omitempty" jsonschema:"maximum number of sub-pages to crawl (default 10, max 20)"`
+		CrossDomain bool   `json:"cross_domain,omitempty" jsonschema:"allow crawling cross-domain links (default false, same-domain only)"`
+	}
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "deep_read_page",
+		Description: "Deep read a webpage by extracting main content and intelligently crawling related sub-pages. Returns structured markdown with main content and linked page summaries. Useful for comprehensive page analysis.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args deepReadPageArgs) (*mcp.CallToolResult, any, error) {
+		if args.URL == "" {
+			return nil, nil, fmt.Errorf("URL is required")
+		}
+
+		// Build options - defaults are handled by DeepReader
+		var opts []extraction.DeepReaderOption
+		if args.MaxLinks > 0 {
+			opts = append(opts, extraction.WithMaxLinks(args.MaxLinks))
+		}
+		if args.CrossDomain {
+			opts = append(opts, extraction.WithSameDomain(false))
+		}
+
+		reader := extraction.NewDeepReader(opts...)
+		result, err := reader.DeepRead(ctx, args.URL)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		markdown := result.ToMarkdown()
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: markdown}}}, nil, nil
+	})
+
 	return nil
 }
