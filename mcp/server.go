@@ -10,8 +10,9 @@ import (
 )
 
 type Server struct {
-	mcpServer *mcp.Server
-	searcher  search.MultiEngineSearcher
+	mcpServer  *mcp.Server
+	searcher   search.MultiEngineSearcher
+	researcher *search.ComprehensiveResearcher
 }
 
 func NewServer() (*Server, error) {
@@ -23,9 +24,11 @@ func NewServer() (*Server, error) {
 		nil,
 	)
 
+	searcher := search.NewHybridSearcher()
 	s := &Server{
-		mcpServer: mcpServer,
-		searcher:  search.NewHybridSearcher(),
+		mcpServer:  mcpServer,
+		searcher:   searcher,
+		researcher: search.NewComprehensiveResearcher(searcher),
 	}
 
 	if err := s.registerTools(); err != nil {
@@ -41,7 +44,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 func (s *Server) registerTools() error {
 	// ... (basicSearchArgs omitted for brevity, but I will write the full file)
-	// I'll use replace for specific parts to be safer, but since I have the content, 
+	// I'll use replace for specific parts to be safer, but since I have the content,
 	// I'll just rewrite the file with all tools correctly.
 	return s.doRegisterTools()
 }
@@ -66,6 +69,9 @@ func (s *Server) doRegisterTools() error {
 			return nil, nil, err
 		}
 		var content string
+		if shouldEnhanceBasicQuery(args.Query) {
+			content += extractQuickAnswerContext(ctx, results)
+		}
 		for i, result := range results {
 			content += fmt.Sprintf("### Result %d\n**Title:** %s\n**URL:** %s\n**Snippet:** %s\n\n", i+1, result.Title, result.URL, result.Snippet)
 		}
@@ -76,23 +82,32 @@ func (s *Server) doRegisterTools() error {
 	type searchWithContentArgs struct {
 		Query          string `json:"query" jsonschema:"the search query to execute"`
 		MaxResults     int    `json:"max_results,omitempty" jsonschema:"maximum number of results to return"`
-		ExtractContent bool   `json:"extract_content,omitempty" jsonschema:"whether to extract full page content"`
+		ExtractContent *bool  `json:"extract_content,omitempty" jsonschema:"whether to extract full page content"`
 	}
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "websearch_with_content",
 		Description: "Web search with intelligent content extraction from result pages",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args searchWithContentArgs) (*mcp.CallToolResult, any, error) {
-		if args.MaxResults == 0 { args.MaxResults = 5 }
-		results, err := s.searcher.Search(ctx, args.Query, search.SearchOptions{MaxResults: args.MaxResults, ExtractContent: true})
-		if err != nil { return nil, nil, err }
+		if args.MaxResults == 0 {
+			args.MaxResults = 5
+		}
+		extractContent := resolveExtractContent(args.ExtractContent)
+		results, err := s.searcher.Search(ctx, args.Query, search.SearchOptions{MaxResults: args.MaxResults, ExtractContent: extractContent})
+		if err != nil {
+			return nil, nil, err
+		}
 		var content string
 		for i, result := range results {
 			content += fmt.Sprintf("### Result %d\n**Title:** %s\n**URL:** %s\n", i+1, result.Title, result.URL)
 			if result.Content != "" {
 				ext := result.Content
-				if len(ext) > 1500 { ext = ext[:1500] + "..." }
+				if len(ext) > 1500 {
+					ext = ext[:1500] + "..."
+				}
 				content += fmt.Sprintf("\n**Content:**\n%s\n", ext)
+			} else if result.Snippet != "" {
+				content += fmt.Sprintf("\n**Snippet:** %s\n", result.Snippet)
 			}
 			content += "\n---\n\n"
 		}
@@ -110,15 +125,21 @@ func (s *Server) doRegisterTools() error {
 		Name:        "websearch_multi_engine",
 		Description: "Comprehensive search across multiple engines with content extraction",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args deepSearchArgs) (*mcp.CallToolResult, any, error) {
-		if args.MaxResults == 0 { args.MaxResults = 10 }
+		if args.MaxResults == 0 {
+			args.MaxResults = 10
+		}
 		results, err := s.searcher.DeepSearch(ctx, args.Query, search.SearchOptions{MaxResults: args.MaxResults, Engines: args.Engines, ExtractContent: true})
-		if err != nil { return nil, nil, err }
+		if err != nil {
+			return nil, nil, err
+		}
 		var content string
 		for i, result := range results {
 			content += fmt.Sprintf("### Result %d\n**Title:** %s\n**URL:** %s\n", i+1, result.Title, result.URL)
 			if result.Content != "" {
 				ext := result.Content
-				if len(ext) > 1500 { ext = ext[:1500] + "..." }
+				if len(ext) > 1500 {
+					ext = ext[:1500] + "..."
+				}
 				content += fmt.Sprintf("\n**Content:**\n%s\n", ext)
 			}
 			content += "\n---\n\n"
@@ -136,10 +157,14 @@ func (s *Server) doRegisterTools() error {
 		Name:        "websearch_ai_summary",
 		Description: "Search and return AI-ready aggregated content optimized for analysis and summarization",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args searchAndAggregateArgs) (*mcp.CallToolResult, any, error) {
-		if args.MaxResults == 0 { args.MaxResults = 5 }
+		if args.MaxResults == 0 {
+			args.MaxResults = 5
+		}
 		if hs, ok := s.searcher.(*search.HybridMultiEngineSearcher); ok {
 			aggregated, err := hs.SearchAndAggregate(ctx, args.Query, args.MaxResults)
-			if err != nil { return nil, nil, err }
+			if err != nil {
+				return nil, nil, err
+			}
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: aggregated}}}, nil, nil
 		}
 		return nil, nil, fmt.Errorf("aggregation not supported")
@@ -154,9 +179,13 @@ func (s *Server) doRegisterTools() error {
 		Name:        "fetch_page_content",
 		Description: "Directly fetch and extract the main content from a specific URL using Readability and Markdown conversion",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args fetchPageContentArgs) (*mcp.CallToolResult, any, error) {
-		if args.URL == "" { return nil, nil, fmt.Errorf("URL is required") }
+		if args.URL == "" {
+			return nil, nil, fmt.Errorf("URL is required")
+		}
 		content, err := extraction.NewHybridExtractor().ExtractContent(ctx, args.URL)
-		if err != nil { return nil, nil, err }
+		if err != nil {
+			return nil, nil, err
+		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: content}}}, nil, nil
 	})
 
@@ -170,10 +199,14 @@ func (s *Server) doRegisterTools() error {
 		Name:        "take_screenshot",
 		Description: "Capture a screenshot of a webpage",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args takeScreenshotArgs) (*mcp.CallToolResult, any, error) {
-		if args.URL == "" { return nil, nil, fmt.Errorf("URL is required") }
+		if args.URL == "" {
+			return nil, nil, fmt.Errorf("URL is required")
+		}
 		imgData, err := extraction.NewChromedpExtractor().CaptureScreenshot(ctx, args.URL, args.FullPage)
-		if err != nil { return nil, nil, err }
-		
+		if err != nil {
+			return nil, nil, err
+		}
+
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.ImageContent{
@@ -187,8 +220,8 @@ func (s *Server) doRegisterTools() error {
 
 	// deep_read_page
 	type deepReadPageArgs struct {
-		URL        string `json:"url" jsonschema:"the URL of the page to deep read"`
-		MaxLinks   int    `json:"max_links,omitempty" jsonschema:"maximum number of sub-pages to crawl (default 10, max 20)"`
+		URL         string `json:"url" jsonschema:"the URL of the page to deep read"`
+		MaxLinks    int    `json:"max_links,omitempty" jsonschema:"maximum number of sub-pages to crawl (default 10, max 20)"`
 		CrossDomain bool   `json:"cross_domain,omitempty" jsonschema:"allow crawling cross-domain links (default false, same-domain only)"`
 	}
 
@@ -217,6 +250,38 @@ func (s *Server) doRegisterTools() error {
 
 		markdown := result.ToMarkdown()
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: markdown}}}, nil, nil
+	})
+
+	// comprehensive_research
+	type comprehensiveResearchArgs struct {
+		Topic      string `json:"topic" jsonschema:"the topic to research extensively"`
+		MaxSources int    `json:"max_sources,omitempty" jsonschema:"number of diverse websites to analyze (default 3, max 8)"`
+	}
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "comprehensive_research",
+		Description: "Perform an exhaustive all-web research on a topic. Searches multiple engines, selects diverse authoritative sources, and performs deep reading on each. Returns a structured, cross-referenced research report.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args comprehensiveResearchArgs) (*mcp.CallToolResult, any, error) {
+		if args.Topic == "" {
+			return nil, nil, fmt.Errorf("topic is required")
+		}
+		if args.MaxSources <= 0 {
+			args.MaxSources = 3
+		}
+		if args.MaxSources > 8 {
+			args.MaxSources = 8
+		}
+
+		result, err := s.researcher.ConductResearch(ctx, args.Topic, args.MaxSources)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: result.ToMarkdown()},
+			},
+		}, nil, nil
 	})
 
 	return nil

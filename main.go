@@ -28,6 +28,7 @@ func main() {
 		fmt.Println("  - websearch_multi_engine: Comprehensive multi-engine search with content extraction")
 		fmt.Println("  - websearch_ai_summary: Aggregated content optimized for AI analysis")
 		fmt.Println("  - fetch_page_content: Directly extract content from any URL")
+		fmt.Println("  - comprehensive_research: Exhaustive all-web topic research")
 		fmt.Println("\nSearch Engines:")
 		fmt.Println("  - DuckDuckGo (primary)")
 		fmt.Println("  - Bing (fallback)")

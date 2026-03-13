@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -29,77 +30,57 @@ func (b *braveGoQueryEngine) Name() string {
 
 func (b *braveGoQueryEngine) Search(ctx context.Context, query string, maxResults int) ([]SearchResult, error) {
 	searchURL := fmt.Sprintf("https://search.brave.com/search?q=%s", url.QueryEscape(query))
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Set headers to appear more like a real browser
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
-	
+
 	resp, err := b.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch Brave results: %w", err)
 	}
 	defer resp.Body.Close()
-	
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Brave response: %w", err)
+	}
+
+	if err := validateSearchResponse(b.Name(), resp.StatusCode, string(body)); err != nil {
+		return nil, err
+	}
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse HTML: %w", err)
 	}
-	
+
 	var results []SearchResult
-	
+
 	// Try multiple selectors for Brave results
 	doc.Find(".snippet, .result-card, article[data-type='web']").Each(func(i int, s *goquery.Selection) {
 		if i >= maxResults {
 			return
 		}
-		
-		// Extract title and link
-		var title, link string
-		
-		// Try different title selectors
-		titleElem := s.Find(".snippet-title").First()
-		if titleElem.Length() == 0 {
-			titleElem = s.Find("h3 a").First()
-		}
-		if titleElem.Length() == 0 {
-			titleElem = s.Find("a[data-testid='result-title']").First()
-		}
-		if titleElem.Length() == 0 {
-			titleElem = s.Find("a").First()
-		}
-		
-		title = strings.TrimSpace(titleElem.Text())
-		link, _ = titleElem.Attr("href")
-		
-		// If link is from a parent element
-		if link == "" {
-			link, _ = s.Find("a[href]").First().Attr("href")
-		}
-		
-		// Extract snippet
-		snippet := strings.TrimSpace(s.Find(".snippet-description").Text())
-		if snippet == "" {
-			snippet = strings.TrimSpace(s.Find("[data-testid='result-description']").Text())
-		}
-		if snippet == "" {
-			snippet = strings.TrimSpace(s.Find(".desc").Text())
-		}
-		if snippet == "" {
-			snippet = strings.TrimSpace(s.Find("p").First().Text())
-		}
-		
+
+		title, link, snippet := extractBraveResult(s)
+
 		if link != "" && title != "" {
 			// Ensure link has protocol
-			if !strings.HasPrefix(link, "http") {
+			if strings.HasPrefix(link, "//") {
+				link = "https:" + link
+			} else if strings.HasPrefix(link, "/") {
+				link = "https://search.brave.com" + link
+			} else if !strings.HasPrefix(link, "http") {
 				link = "https://" + link
 			}
-			
+
 			results = append(results, SearchResult{
 				Title:   title,
 				URL:     link,
@@ -108,23 +89,23 @@ func (b *braveGoQueryEngine) Search(ctx context.Context, query string, maxResult
 			})
 		}
 	})
-	
+
 	// If no results with primary selectors, try backup approach
 	if len(results) == 0 {
 		doc.Find("#results a[href]").Each(func(i int, s *goquery.Selection) {
 			if i >= maxResults {
 				return
 			}
-			
+
 			title := strings.TrimSpace(s.Text())
 			link, _ := s.Attr("href")
-			
+
 			// Skip navigation/internal links
 			if link != "" && title != "" && strings.Contains(link, "http") {
 				if !strings.HasPrefix(link, "http") {
 					link = "https://" + link
 				}
-				
+
 				results = append(results, SearchResult{
 					Title:   title,
 					URL:     link,
@@ -134,6 +115,52 @@ func (b *braveGoQueryEngine) Search(ctx context.Context, query string, maxResult
 			}
 		})
 	}
-	
+
 	return results, nil
+}
+
+func extractBraveResult(s *goquery.Selection) (string, string, string) {
+	linkElem := s.Find("a.l1[href]").First()
+	if linkElem.Length() == 0 {
+		linkElem = s.Find("a[data-testid='result-title']").First()
+	}
+	if linkElem.Length() == 0 {
+		linkElem = s.Find("h3 a").First()
+	}
+	if linkElem.Length() == 0 {
+		linkElem = s.Find("a[href]").First()
+	}
+
+	titleElem := s.Find(".search-snippet-title, .title, .snippet-title").First()
+	title := strings.TrimSpace(titleElem.Text())
+	if title == "" {
+		title = strings.TrimSpace(linkElem.Find(".search-snippet-title, .title, .snippet-title").First().Text())
+	}
+	if title == "" {
+		title = strings.TrimSpace(linkElem.Text())
+	}
+
+	link, _ := linkElem.Attr("href")
+	if link == "" {
+		link, _ = s.Find("a[href]").First().Attr("href")
+	}
+
+	snippet := strings.TrimSpace(s.Find(".generic-snippet .content").First().Text())
+	if snippet == "" {
+		snippet = strings.TrimSpace(s.Find(".snippet-description").Text())
+	}
+	if snippet == "" {
+		snippet = strings.TrimSpace(s.Find("[data-testid='result-description']").Text())
+	}
+	if snippet == "" {
+		snippet = strings.TrimSpace(s.Find(".desc").Text())
+	}
+	if snippet == "" {
+		snippet = strings.TrimSpace(s.Find(".content").First().Text())
+	}
+	if snippet == "" {
+		snippet = strings.TrimSpace(s.Find("p").First().Text())
+	}
+
+	return title, link, snippet
 }

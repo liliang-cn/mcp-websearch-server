@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -45,10 +46,12 @@ func (m *multiEngineSearcher) Search(ctx context.Context, query string, opts Sea
 	}
 
 	results, err := engine.Search(ctx, query, opts.MaxResults)
+	results, err = normalizeSearchOutcome(engine.Name(), results, err)
 	if err != nil {
+		primaryErr := err
 		results, err = m.fallbackSearch(ctx, query, opts.MaxResults, engine.Name())
 		if err != nil {
-			return nil, fmt.Errorf("all search engines failed: %w", err)
+			return nil, fmt.Errorf("all search engines failed: %w", errors.Join(primaryErr, err))
 		}
 	}
 
@@ -87,6 +90,7 @@ func (m *multiEngineSearcher) DeepSearch(ctx context.Context, query string, opts
 			defer wg.Done()
 
 			results, err := eng.Search(ctx, query, resultsPerEngine)
+			results, err = normalizeSearchOutcome(eng.Name(), results, err)
 			if err != nil {
 				fmt.Printf("Engine %s failed: %v\n", eng.Name(), err)
 				return
@@ -136,6 +140,7 @@ func (m *multiEngineSearcher) selectEngine(preferred []string) SearchEngine {
 
 func (m *multiEngineSearcher) fallbackSearch(ctx context.Context, query string, maxResults int, failedEngine string) ([]SearchResult, error) {
 	priorityOrder := []string{"bing", "brave", "duckduckgo"}
+	var errs []error
 
 	for _, name := range priorityOrder {
 		if name == failedEngine {
@@ -144,13 +149,19 @@ func (m *multiEngineSearcher) fallbackSearch(ctx context.Context, query string, 
 
 		if engine, ok := m.engines[name]; ok {
 			results, err := engine.Search(ctx, query, maxResults)
+			results, err = normalizeSearchOutcome(name, results, err)
 			if err == nil {
 				return results, nil
 			}
+			errs = append(errs, err)
 		}
 	}
 
-	return nil, fmt.Errorf("all fallback engines failed")
+	if len(errs) == 0 {
+		return nil, fmt.Errorf("all fallback engines failed: %w", ErrNoResults)
+	}
+
+	return nil, fmt.Errorf("all fallback engines failed: %w", errors.Join(errs...))
 }
 
 func (m *multiEngineSearcher) getEngines(names []string) []SearchEngine {

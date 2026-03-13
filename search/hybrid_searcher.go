@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -44,11 +45,13 @@ func (h *HybridMultiEngineSearcher) Search(ctx context.Context, query string, op
 
 	// Get search results using goquery (fast)
 	results, err := engine.Search(ctx, query, opts.MaxResults)
+	results, err = normalizeSearchOutcome(engine.Name(), results, err)
 	if err != nil {
+		primaryErr := err
 		// Try fallback engines
 		results, err = h.fallbackSearch(ctx, query, opts.MaxResults, engine.Name())
 		if err != nil {
-			return nil, fmt.Errorf("all search engines failed: %w", err)
+			return nil, fmt.Errorf("all search engines failed: %w", errors.Join(primaryErr, err))
 		}
 	}
 
@@ -90,6 +93,7 @@ func (h *HybridMultiEngineSearcher) DeepSearch(ctx context.Context, query string
 			defer wg.Done()
 
 			results, err := eng.Search(ctx, query, resultsPerEngine)
+			results, err = normalizeSearchOutcome(eng.Name(), results, err)
 			if err != nil {
 				fmt.Printf("Engine %s failed: %v\n", eng.Name(), err)
 				return
@@ -157,17 +161,17 @@ func (h *HybridMultiEngineSearcher) SearchAndAggregate(ctx context.Context, quer
 	// Aggregate all content
 	var aggregated string
 	aggregated += fmt.Sprintf("# Search Results for: %s\n\n", query)
-	
+
 	for i, result := range results {
 		aggregated += fmt.Sprintf("## %d. %s\n", i+1, result.Title)
 		aggregated += fmt.Sprintf("**Source:** %s\n", result.URL)
 		aggregated += fmt.Sprintf("**Engine:** %s\n\n", result.Engine)
-		
+
 		// Always include snippet as it often contains the key fact (zero-click info)
 		if result.Snippet != "" {
 			aggregated += fmt.Sprintf("**Snippet:** %s\n\n", result.Snippet)
 		}
-		
+
 		if result.Content != "" {
 			// Limit content per result
 			content := result.Content
@@ -176,7 +180,7 @@ func (h *HybridMultiEngineSearcher) SearchAndAggregate(ctx context.Context, quer
 			}
 			aggregated += fmt.Sprintf("**Extracted Content:**\n%s", content)
 		}
-		
+
 		aggregated += "\n\n---\n\n"
 	}
 
@@ -205,6 +209,7 @@ func (h *HybridMultiEngineSearcher) selectEngine(preferred []string) SearchEngin
 
 func (h *HybridMultiEngineSearcher) fallbackSearch(ctx context.Context, query string, maxResults int, failedEngine string) ([]SearchResult, error) {
 	priorityOrder := []string{"duckduckgo", "bing", "brave"}
+	var errs []error
 
 	for _, name := range priorityOrder {
 		if name == failedEngine {
@@ -213,13 +218,19 @@ func (h *HybridMultiEngineSearcher) fallbackSearch(ctx context.Context, query st
 
 		if engine, ok := h.engines[name]; ok {
 			results, err := engine.Search(ctx, query, maxResults)
+			results, err = normalizeSearchOutcome(name, results, err)
 			if err == nil {
 				return results, nil
 			}
+			errs = append(errs, err)
 		}
 	}
 
-	return nil, fmt.Errorf("all fallback engines failed")
+	if len(errs) == 0 {
+		return nil, fmt.Errorf("all fallback engines failed: %w", ErrNoResults)
+	}
+
+	return nil, fmt.Errorf("all fallback engines failed: %w", errors.Join(errs...))
 }
 
 func (h *HybridMultiEngineSearcher) getEngines(names []string) []SearchEngine {

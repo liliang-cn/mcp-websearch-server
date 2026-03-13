@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -31,41 +32,50 @@ func (d *duckDuckGoGoQueryEngine) Search(ctx context.Context, query string, maxR
 	// DuckDuckGo Lite version (GET request with Lynx UA)
 	// Using Lite version with Lynx UA avoids most CAPTCHA/bot detection issues
 	searchURL := fmt.Sprintf("https://duckduckgo.com/lite/?q=%s", url.QueryEscape(query))
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Use Lynx User-Agent to ensure we get the lightweight HTML version
 	req.Header.Set("User-Agent", "Lynx/2.8.9rel.1 libwww-FM/2.14 SSL-MM/1.4.1 OpenSSL/1.1.1d")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-	
+
 	resp, err := d.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch DuckDuckGo results: %w", err)
 	}
 	defer resp.Body.Close()
-	
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read DuckDuckGo response: %w", err)
+	}
+
+	if err := validateSearchResponse(d.Name(), resp.StatusCode, string(body)); err != nil {
+		return nil, err
+	}
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse HTML: %w", err)
 	}
-	
+
 	var results []SearchResult
-	
+
 	// Lite version uses tables for layout. Result links have class "result-link"
 	doc.Find("a.result-link").Each(func(i int, s *goquery.Selection) {
 		if len(results) >= maxResults {
 			return
 		}
-		
+
 		title := strings.TrimSpace(s.Text())
 		link, _ := s.Attr("href")
-		
+
 		// Snippet is usually in the next row's cell with class .result-snippet
 		snippet := ""
-		
+
 		tr := s.ParentsFiltered("tr").First()
 		if tr.Length() > 0 {
 			snippetTr := tr.Next()
@@ -76,7 +86,7 @@ func (d *duckDuckGoGoQueryEngine) Search(ctx context.Context, query string, maxR
 				}
 			}
 		}
-		
+
 		if link != "" && title != "" {
 			// Clean up DuckDuckGo redirect URLs
 			if strings.Contains(link, "duckduckgo.com/l/") {
@@ -88,7 +98,7 @@ func (d *duckDuckGoGoQueryEngine) Search(ctx context.Context, query string, maxR
 					}
 				}
 			}
-			
+
 			// Ensure proper URL format
 			if strings.HasPrefix(link, "//") {
 				link = "https:" + link
@@ -97,7 +107,7 @@ func (d *duckDuckGoGoQueryEngine) Search(ctx context.Context, query string, maxR
 					link = "https://" + link
 				}
 			}
-			
+
 			results = append(results, SearchResult{
 				Title:   title,
 				URL:     link,
@@ -106,6 +116,6 @@ func (d *duckDuckGoGoQueryEngine) Search(ctx context.Context, query string, maxR
 			})
 		}
 	})
-	
+
 	return results, nil
 }
